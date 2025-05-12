@@ -7,7 +7,7 @@ $user = "root";
 $password = "";
 $database = "blog_system1";
 
-// Create connection
+// Create connection11
 $mysqli = new mysqli($host, $user, $password, $database);
 
 // Check connection
