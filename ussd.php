@@ -1,33 +1,26 @@
 <?php
 header("Content-Type: text/plain");
 
-// Database configuration
+// Database config
 $host = "localhost";
 $user = "root";
 $password = "";
 $database = "blog_system1";
-
-// Create connection11
 $mysqli = new mysqli($host, $user, $password, $database);
-
-// Check connection
 if ($mysqli->connect_error) {
     die("END Failed to connect: " . $mysqli->connect_error);
 }
 
-// Read USSD variables
+// USSD input
 $sessionId = $_POST["sessionId"] ?? '';
 $serviceCode = $_POST["serviceCode"] ?? '';
 $phoneNumber = $_POST["phoneNumber"] ?? '';
 $text = $_POST["text"] ?? '';
-
-// Split text into parts
 $parts = explode("*", $text);
 $level = count($parts);
-
 $response = "";
 
-// Helper function to manage session data
+// Helper functions
 function getSessionData($mysqli, $sessionId) {
     $stmt = $mysqli->prepare("SELECT menu_state FROM ussd_sessions WHERE session_id = ? ORDER BY created_at DESC LIMIT 1");
     $stmt->bind_param("s", $sessionId);
@@ -36,7 +29,7 @@ function getSessionData($mysqli, $sessionId) {
     if ($stmt->fetch()) {
         return json_decode($menu_state, true);
     }
-    return null;
+    return [];
 }
 
 function saveSessionData($mysqli, $sessionId, $phoneNumber, $data) {
@@ -46,44 +39,26 @@ function saveSessionData($mysqli, $sessionId, $phoneNumber, $data) {
     $stmt->execute();
 }
 
-// Main menu logic
+// Get current session state
+$session = getSessionData($mysqli, $sessionId);
+
+// Main menu
 switch ($parts[0]) {
     case "":
         $response .= "CON Welcome to the Blog USSD\n";
         $response .= "1. View Latest Posts\n";
         $response .= "2. Submit a Post\n";
         $response .= "3. Register as Author\n";
-        $response .= "4. View Submitted Posts\n"; // Option to view submitted posts
-        $response .= "5. View Profile\n"; // New option to view profile
+        $response .= "4. View Submitted Posts\n";
+        $response .= "5. View Profile\n";
+        $response .= "6. Switch Author";
         break;
 
-    case "5": // View Profile
-        if ($level == 1) {
-            // Fetch user details based on the phone number
-            $sql = "SELECT name, email, phone FROM users WHERE phone = '$phoneNumber' LIMIT 1";
-            $result = $mysqli->query($sql);
-
-            if ($result->num_rows > 0) {
-                $user = $result->fetch_assoc();
-                $response .= "CON Your Profile:\n";
-                $response .= "Name: " . $user['name'] . "\n";
-                $response .= "Email: " . $user['email'] . "\n";
-                $response .= "Phone: " . $user['phone'] . "\n";
-                $response .= "Reply with 1 to go back to the main menu.";
-            } else {
-                $response .= "END No profile found. Please register first.";
-            }
-        } elseif ($level == 2) {
-            $response .= "CON Returning to main menu...";
-            // Here we would redirect to the main menu or do other actions.
-        }
-        break;
-
-    case "1": // View Latest Posts
+    // 1. View Posts
+    case "1":
         if ($level == 1) {
             $sql = "SELECT id, title FROM posts ORDER BY created_at DESC LIMIT 10";
             $result = $mysqli->query($sql);
-
             if ($result->num_rows > 0) {
                 $response .= "CON Latest Posts:\n";
                 $posts = [];
@@ -93,19 +68,15 @@ switch ($parts[0]) {
                     $response .= $index . ". " . $row['title'] . "\n";
                     $index++;
                 }
-
-                // Save post IDs to session
-                saveSessionData($mysqli, $sessionId, $phoneNumber, ['posts' => $posts]);
-
+                $session['posts'] = $posts;
+                saveSessionData($mysqli, $sessionId, $phoneNumber, $session);
                 $response .= "Reply with post number to read more:";
             } else {
                 $response .= "END No posts available.";
             }
         } elseif ($level == 2) {
             $selection = intval($parts[1]);
-            $session = getSessionData($mysqli, $sessionId);
-
-            if ($session && isset($session['posts'][$selection - 1])) {
+            if (isset($session['posts'][$selection - 1])) {
                 $post_id = $session['posts'][$selection - 1];
                 $sql = "SELECT posts.title, posts.body, users.name as author 
                         FROM posts 
@@ -115,7 +86,6 @@ switch ($parts[0]) {
                 $stmt->bind_param("i", $post_id);
                 $stmt->execute();
                 $result = $stmt->get_result();
-
                 if ($row = $result->fetch_assoc()) {
                     $author = $row['author'] ?? 'Unknown';
                     $response .= "END " . $row['title'] . "\nBy: " . $author . "\n" . $row['body'];
@@ -128,14 +98,63 @@ switch ($parts[0]) {
         }
         break;
 
-    case "4": // View Submitted Posts
-        if ($level == 1) {
-            // Fetch posts by the logged-in user (author)
-            $sql = "SELECT id, title FROM posts WHERE user_id = (SELECT id FROM users WHERE phone = '$phoneNumber') ORDER BY created_at DESC";
-            $result = $mysqli->query($sql);
+    // 2. Submit a Post
+    case "2":
+        if (!isset($session['author_id'])) {
+            $response .= "END You must switch to an author first.";
+        } elseif ($level == 1) {
+            $response .= "CON Enter post title:";
+        } elseif ($level == 2) {
+            $session['post_title'] = $parts[1];
+            saveSessionData($mysqli, $sessionId, $phoneNumber, $session);
+            $response .= "CON Enter post content:";
+        } elseif ($level == 3) {
+            $title = $session['post_title'] ?? '';
+            $body = $parts[2];
+            $user_id = $session['author_id'];
+            $stmt = $mysqli->prepare("INSERT INTO posts (user_id, title, body) VALUES (?, ?, ?)");
+            $stmt->bind_param("iss", $user_id, $title, $body);
+            if ($stmt->execute()) {
+                $response .= "END Post submitted successfully.";
+            } else {
+                $response .= "END Failed to submit post.";
+            }
+        }
+        break;
 
+    // 3. Register as Author
+    case "3":
+        if ($level == 1) {
+            $response .= "CON Enter your name:";
+        } elseif ($level == 2) {
+            $session['reg_name'] = $parts[1];
+            saveSessionData($mysqli, $sessionId, $phoneNumber, $session);
+            $response .= "CON Enter your email:";
+        } elseif ($level == 3) {
+            $name = $session['reg_name'];
+            $email = $parts[2];
+            $stmt = $mysqli->prepare("INSERT INTO users (name, email, phone) VALUES (?, ?, ?)");
+            $stmt->bind_param("sss", $name, $email, $phoneNumber);
+            if ($stmt->execute()) {
+                $response .= "END Registration successful.";
+            } else {
+                $response .= "END Registration failed. You might already be registered.";
+            }
+        }
+        break;
+
+    // 4. View Submitted Posts
+    case "4":
+        if (!isset($session['author_id'])) {
+            $response .= "END You must switch to an author first.";
+        } elseif ($level == 1) {
+            $sql = "SELECT id, title FROM posts WHERE user_id = ? ORDER BY created_at DESC";
+            $stmt = $mysqli->prepare($sql);
+            $stmt->bind_param("i", $session['author_id']);
+            $stmt->execute();
+            $result = $stmt->get_result();
             if ($result->num_rows > 0) {
-                $response .= "CON Your Submitted Posts:\n";
+                $response .= "CON Your Posts:\n";
                 $posts = [];
                 $index = 1;
                 while ($row = $result->fetch_assoc()) {
@@ -143,38 +162,65 @@ switch ($parts[0]) {
                     $response .= $index . ". " . $row['title'] . "\n";
                     $index++;
                 }
-
-                // Save post IDs to session
-                saveSessionData($mysqli, $sessionId, $phoneNumber, ['submitted_posts' => $posts]);
-
-                $response .= "Reply with post number to view, edit, or delete:";
+                $session['my_posts'] = $posts;
+                saveSessionData($mysqli, $sessionId, $phoneNumber, $session);
+                $response .= "Reply with post number to view.";
             } else {
-                $response .= "END You have not submitted any posts yet.";
+                $response .= "END You have no posts.";
             }
         } elseif ($level == 2) {
-            $selection = intval($parts[1]);
-            $session = getSessionData($mysqli, $sessionId);
-
-            if ($session && isset($session['submitted_posts'][$selection - 1])) {
-                $post_id = $session['submitted_posts'][$selection - 1];
-                $sql = "SELECT posts.title, posts.body FROM posts WHERE id = ? AND user_id = (SELECT id FROM users WHERE phone = '$phoneNumber')";
-                $stmt = $mysqli->prepare($sql);
-                $stmt->bind_param("i", $post_id);
+            $index = intval($parts[1]) - 1;
+            if (isset($session['my_posts'][$index])) {
+                $post_id = $session['my_posts'][$index];
+                $stmt = $mysqli->prepare("SELECT title, body FROM posts WHERE id = ? AND user_id = ?");
+                $stmt->bind_param("ii", $post_id, $session['author_id']);
                 $stmt->execute();
                 $result = $stmt->get_result();
-
                 if ($row = $result->fetch_assoc()) {
-                    $response .= "CON View/Edit/Delete Post:\n";
-                    $response .= "1. Edit Title\n";
-                    $response .= "2. Edit Body\n";
-                    $response .= "3. Delete Post\n"; // Option to delete
-                    $response .= "4. Cancel\n";
-                    saveSessionData($mysqli, $sessionId, $phoneNumber, ['edit_post_id' => $post_id, 'post_title' => $row['title'], 'post_body' => $row['body']]);
+                    $response .= "END Title: " . $row['title'] . "\nContent: " . $row['body'];
                 } else {
-                    $response .= "END You are not the author of this post.";
+                    $response .= "END Post not found.";
                 }
             } else {
-                $response .= "END Invalid post selection.";
+                $response .= "END Invalid selection.";
+            }
+        }
+        break;
+
+    // 5. View Profile
+    case "5":
+        if (!isset($session['author_id'])) {
+            $response .= "END You must switch to an author first.";
+        } else {
+            $stmt = $mysqli->prepare("SELECT name, email, phone FROM users WHERE id = ?");
+            $stmt->bind_param("i", $session['author_id']);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $response .= "END Name: " . $row['name'] . "\nEmail: " . $row['email'] . "\nPhone: " . $row['phone'];
+            } else {
+                $response .= "END Author not found.";
+            }
+        }
+        break;
+
+    // 6. Switch Author
+    case "6":
+        if ($level == 1) {
+            $response .= "CON Enter author name to switch:";
+        } elseif ($level == 2) {
+            $author_name = $parts[1];
+            $stmt = $mysqli->prepare("SELECT id FROM users WHERE name = ?");
+            $stmt->bind_param("s", $author_name);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $session['author_id'] = $row['id'];
+                $session['author_name'] = $author_name;
+                saveSessionData($mysqli, $sessionId, $phoneNumber, $session);
+                $response .= "END Author switched to " . $author_name;
+            } else {
+                $response .= "END Author not found.";
             }
         }
         break;
