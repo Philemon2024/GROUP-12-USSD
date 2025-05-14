@@ -57,9 +57,9 @@ Local Testing:
 
 
 Usernames and passwords:
- -Christine(Email:chris12@gmail.com, password:123)
- -Philemon(Email:Philemo12@gmail.com, password:123)
- -UWERA Carine(Email:ca@gmail.com, password:123)
+ -Christine(Email:chris12@gmail.com)
+ -Philemon(Email:Philemo12@gmail.com)
+ -UWERA Carine(Email:ca@gmail.com)
    
    
 
