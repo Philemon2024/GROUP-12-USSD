@@ -9,10 +9,21 @@ This project is a USSD (Unstructured Supplementary Service Data) application bui
 
  Features:
 
-- Handles USSD requests via HTTP POST.
-- Uses MySQL to manage user sessions and menu states.
-- Dynamically generates USSD menu responses based on user input.
-- Simple and extensible codebase.
+Dynamic USSD Menus – Navigates different functionalities using multi-level input.
+
+View Latest Posts – Lists and reads detailed content of recent posts.
+
+Submit a Post – Authors can create and publish new posts.
+
+Register as Author – New authors can sign up using their name and email.
+
+View Submitted Posts – Logged-in authors can view their own submissions.
+
+View Profile – Shows the current author’s details.
+
+Switch Author – Switch between existing author accounts by name (no password required).
+
+Session Management – Tracks user input states and selections using a ussd_sessions table.
 
  Requirements:
 
